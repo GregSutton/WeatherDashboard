@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <script src="js/jquery-3.6.0.min.js"></script>
+    <script src="js/jquery-ui.js"></script>
+
+    <script> 
+        $( document ).ready(function() 
+        {
+            getData();
+        });
+
+        function getData()
+        {
+            const Sensors = new XMLHttpRequest();
+            const surl='https://io.adafruit.com/api/v2/Sheffield/feeds?x-aio-key=aio_Puso71HLjUQZQMxzBHUfrHMbUwtp';
+            Sensors.open("GET", surl);
+            Sensors.send();
+
+            Sensors.onreadystatechange = (e) =>
+            {
+                if(Sensors.readyState === XMLHttpRequest.DONE)
+                {
+                    getSensorData(Sensors.responseText);
+                }
+            }
+
+            const Weather = new XMLHttpRequest();
+            const wurl='https://api.weather.gov/gridpoints/BOU/63,100/forecast';
+            Weather.open("GET", wurl);
+            Weather.send();
+
+            Weather.onreadystatechange = (e) =>
+            {
+                if(Weather.readyState === XMLHttpRequest.DONE)
+                {
+                    getWeatherData(Weather.responseText);
+                }
+            }
+        }
+
+        function getSensorData(json)
+        {
+            var data = JSON.parse(json);
+
+            var updated = data[0].updated_at;
+            updated = updated.replace("T", " - ");
+            updated = updated.replace("Z", "");
+            document.getElementById('updated').innerHTML = updated;
+
+            var pm25;
+            var pm10;
+            var temperature;
+            var humidity;
+            var pressure;
+            var windspeed = 5;
+
+            for (const feed of data)
+            {
+                //console.log(feed);
+                var name = feed.name;
+                var val  = feed.last_value;
+
+                if (name == "pm25")
+                {
+                    pm25 = parseFloat(val);
+                    var AQI = calculateAQI(pm25);
+                    document.getElementById('aqi').innerHTML = AQI.value;
+                    $("#boxaqi").css("background-color", AQI.color);
+                }
+                else if (name == "pm10")
+                {
+                    pm10 = parseFloat(val);
+                }
+                else if (name == "temperature")
+                {
+                    temperature = Math.round(32 + (1.8 * parseFloat(val)));
+                }
+                else if (name == "humidity")
+                {
+                    humidity = parseFloat(val);
+                }
+                else if (name == "pressure")
+                {
+                    pressure = parseFloat(val);
+                }
+
+            }
+
+            document.getElementById("pm25").innerHTML = "PM 2.5: " + pm25;
+            document.getElementById("pm10").innerHTML = "PM 10: " + pm10;
+            document.getElementById("temperature").innerHTML = "temperature: " + temperature;
+            document.getElementById("pressure").innerHTML = "pressure: " + pressure;
+            document.getElementById("humidity").innerHTML = "humidity: " + humidity;
+
+            var feelslike = feelsLike(temperature, humidity, windspeed);
+            document.getElementById("feelslike").innerHTML = feelslike;
+            if (feelslike > temperature)
+            {
+                $("#boxfl").css("background-color", 'red');
+            }
+            else if (temperature < 50 && windspeec > 3)
+            {
+                $("#boxfl").css("background-color", 'blue');
+            }
+            else
+            {
+                $("#boxfl").css("max-height", 0);
+            }
+        }
+
+        function getWeatherData(json)
+        {
+            var data = JSON.parse(json);
+
+            var period = data.properties.periods[0];
+            var wind = period.windSpeed;
+            var forecast = period.shortForecast;
+
+            document.getElementById("wind").innerHTML = "Wind: " + wind;
+            document.getElementById("forecast").innerHTML = "Forecast: " + forecast;
+
+        }
+
+
+        function calculateAQI( pm25 )
+        {
+            var aqi_ranges = [0, 12, 35.4, 55.4, 150.4, 250.4, 350.4, 500.4];
+            var aqi_colour = [0, 'LawnGreen', 'Yellow', 'DarkOrange', 'Red', 'Purple', 'Purple', 'Purple'];
+        
+            for (var i =0; i < aqi_ranges.length; i++)
+            {
+                if (pm25 < aqi_ranges[i])
+                {
+                    var ihigh  = i * 50;
+                    var ilow   = ihigh - 50;
+                    var chigh  = aqi_ranges[i];
+                    var clow   = aqi_ranges[i-1];
+                    
+                    var aqi    = (ihigh - ilow) / (chigh - clow);
+                    aqi = aqi * (pm25 - clow);
+                    aqi = aqi + ilow;
+                    aqi = Math.round(aqi)
+                    
+                    return { value: aqi, color: aqi_colour[i] };
+                }
+            }
+        }
+
+        function feelsLike( t, h, w )
+        {
+/*              T = air temperature (F)
+                R = relative humidity (percentage)
+                W = wind speed (mph)
+
+                Heat Index = HI = -42.379 
+                                + 2.04901523*T 
+                                + 10.14333127*RH 
+                                - .22475541*T*RH 
+                                - .00683783*T*T 
+                                - .05481717*RH*RH 
+                                + .00122874*T*T*RH 
+                                + .00085282*T*RH*RH 
+                                - .00000199*T*T*RH*RH
+
+                WindChill = 35.74 
+                            + (0.6215 × T) 
+                            − (35.75 × W^0.16)
+                            + (0.4275 × T × W^0.16)
+ */
+            var hi = -42.379 + (2.04901523 * t) 
+                             + (10.14333127 * h) 
+                             - (0.22475541 * t * h) 
+                             - (0.00683783 * t * t)
+                             - (0.05481717 * h * h) 
+                             + (0.00122874 * t * t * h) 
+                             + (0.00085282 * t * h * h)
+                             - (0.00000199 * t * t * h * h);
+
+            var wc = 35.74 + (0.6215 * t) 
+                   - (35.75 * (w**0.16))
+                   + (0.4275 * t * (w**0.16));
+
+            if (t > 80 && h > 40)
+            {
+                return Math.round(hi);
+            }
+            else if (t < 50 && ws > 3)
+            {
+                return Math.round(wc);
+            }
+            else 
+            {
+                return t;
+            }
+
+        }
+
+        function getWeather()
+        {
+            // COZ038
+            // "gridId": "BOU",
+            // "gridX": 63,
+            // "gridY": 100,
+            // https://api.weather.gov/gridpoints/BOU/63,100/forecast
+        }
+            
+    </script>
+</head>
+<body>
+
+    <h2 id="title">Sensor Dashboard</h2>
+    <h3 id="updated"> </h3>
+
+    <h3 id="forecast"> </h3>
+
+    
+
+    <div id="boxaqi" style="padding-left:30px;padding-right:30px;width:100px;float:left">
+        <H1>AQI</H1>
+        <H1 id="aqi" style="font-size:70px;">99</H1>
+    </div>
+    <div id="boxfl" style="padding-left:30px;padding-right:30px;width:100px;float:left">
+        <H1>Feel</H1>
+        <H1 id="feelslike" style="font-size:70px;">99</H1>
+    </div>
+  
+    <h3 id="pm25" style="clear:left">PM 2.5 </h3>
+    <h3 id="pm10">PM 10 </h3>
+    <h3 id="temperature">Temperature </h3>
+    <h3 id="wind">Wind </h3>
+    <h3 id="pressure">Pressure </h3>
+    <h3 id="humidity">Humidity </h3>
+
+
+
+</body>
+</html>
+
